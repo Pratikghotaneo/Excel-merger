@@ -23,7 +23,7 @@ export default function Page() {
     setLoading(false);
 
     if (res.success) {
-      setData(res.data);
+      setData(res.data!);
       setFileBase64(res.file);
     } else {
       alert(res.message);
