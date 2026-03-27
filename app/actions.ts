@@ -78,9 +78,9 @@ function parseSheet(sheet: XLSX.WorkSheet) {
 }
 
 // 🔥 Map row → required format
-function mapRow(row: any) {
+function mapRow(row: any, i: number) {
   const output: any = {
-    "Sl no": "",
+    "Sl no": i + 1,
     Name: "",
     Designation: "",
     District: "",
