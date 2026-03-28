@@ -9,18 +9,9 @@ import {
   getPaginationRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-
 import { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
-import {
-  Document,
-  Packer,
-  Paragraph,
-  TextRun,
-  Table,
-  TableRow,
-  TableCell,
-} from "docx";
+import { Document, Packer, Paragraph, TextRun } from "docx";
 import { saveAs } from "file-saver";
 
 type Props = {
@@ -100,12 +91,12 @@ export default function DataTable({ data }: Props) {
     table.setPageIndex(0);
   };
 
-  // reset on filter
+  // 🔥 Reset page on filter
   useEffect(() => {
     table.setPageIndex(0);
   }, [globalFilter, table.getState().columnFilters]);
 
-  // clamp page
+  // 🔥 Clamp page (FINAL FIX)
   useEffect(() => {
     if (pageIndex >= pageCount) {
       table.setPageIndex(Math.max(pageCount - 1, 0));
@@ -136,162 +127,158 @@ export default function DataTable({ data }: Props) {
   ];
 
   // =====================
+  // 🔥 DOWNLOAD EXCEL
+  // =====================
+  function downloadCountsExcel() {
+    const workbook = XLSX.utils.book_new();
+    const common: any[] = [];
+
+    countFields.forEach((field) => {
+      getCounts(field).forEach(([value, count]) => {
+        common.push({ Field: field, Value: value, Count: count });
+      });
+    });
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(common),
+      "All Counts",
+    );
+
+    countFields.forEach((field) => {
+      const sheet = getCounts(field).map(([value, count]) => ({
+        Value: value,
+        Count: count,
+      }));
+
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.json_to_sheet(sheet),
+        field.substring(0, 30),
+      );
+    });
+
+    XLSX.writeFile(workbook, "counts.xlsx");
+  }
+
+  // =====================
   // 🔥 DOWNLOAD WORD
   // =====================
   async function downloadCountsWord() {
     const sections: any[] = [];
 
-    const children: any[] = [];
-
-    // 🔥 TITLE
-    children.push(
+    const common: Paragraph[] = [
       new Paragraph({
-        children: [
-          new TextRun({
-            text: "Counts Report",
-            bold: true,
-            size: 32,
-          }),
-        ],
-        spacing: { after: 300 },
+        children: [new TextRun({ text: "All Counts", bold: true, size: 32 })],
       }),
-    );
+    ];
 
-    // 🔥 EACH FIELD AS TABLE
     countFields.forEach((field) => {
-      children.push(
+      common.push(
         new Paragraph({
           children: [new TextRun({ text: field, bold: true })],
-          spacing: { after: 200 },
         }),
       );
 
-      const rows = [
-        new TableRow({
-          children: [
-            new TableCell({
-              children: [new Paragraph("Value")],
-            }),
-            new TableCell({
-              children: [new Paragraph("Count")],
-            }),
-          ],
-        }),
-      ];
-
       getCounts(field).forEach(([value, count]) => {
-        rows.push(
-          new TableRow({
-            children: [
-              new TableCell({
-                children: [new Paragraph(value)],
-              }),
-              new TableCell({
-                children: [new Paragraph(String(count))],
-              }),
-            ],
+        common.push(
+          new Paragraph({
+            children: [new TextRun(`${value} : ${count}`)],
           }),
         );
       });
-
-      children.push(
-        new Table({
-          rows,
-          width: { size: 100, type: "pct" },
-        }),
-      );
-
-      children.push(new Paragraph("")); // spacing
     });
 
-    sections.push({ children });
+    sections.push({ children: common });
 
     const doc = new Document({ sections });
-
     const blob = await Packer.toBlob(doc);
     saveAs(blob, "counts.docx");
   }
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
-      {/* HEADER */}
-      <h1 className="text-2xl font-bold mb-4 text-gray-800">Data Dashboard</h1>
+    <div className="mt-6">
+      {/* SEARCH */}
+      <input
+        placeholder="Search..."
+        value={globalFilter ?? ""}
+        onChange={(e) => table.setGlobalFilter(e.target.value)}
+        className="border px-3 py-2 rounded-lg mb-4 w-80"
+      />
 
-      {/* SEARCH + BUTTONS */}
-      <div className="flex flex-wrap justify-between gap-3 mb-4">
-        <input
-          placeholder="Search..."
-          value={globalFilter ?? ""}
-          onChange={(e) => table.setGlobalFilter(e.target.value)}
-          className="border px-4 py-2 rounded-xl w-80 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none"
-        />
+      {/* DOWNLOAD */}
+      <div className="flex gap-3 mb-4">
+        <button
+          onClick={downloadCountsExcel}
+          className="px-4 py-2 bg-green-600 text-white rounded"
+        >
+          Excel
+        </button>
+        <button
+          onClick={downloadCountsWord}
+          className="px-4 py-2 bg-blue-600 text-white rounded"
+        >
+          Word
+        </button>
       </div>
 
       {/* TABLE */}
-      <div className="bg-white rounded-2xl shadow overflow-hidden">
-        <div className="overflow-auto max-h-[500px]">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-100 sticky top-0">
-              {table.getHeaderGroups().map((hg) => (
-                <tr key={hg.id}>
-                  {hg.headers.map((header) => (
-                    <th key={header.id} className="px-4 py-3 border-b">
+      <div className="overflow-auto border rounded-xl">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-100">
+            {table.getHeaderGroups().map((hg) => (
+              <tr key={hg.id}>
+                {hg.headers.map((header) => (
+                  <th key={header.id} className="border px-2 py-2">
+                    {flexRender(
+                      header.column.columnDef.header,
+                      header.getContext(),
+                    )}
+                    <input
+                      onChange={(e) =>
+                        header.column.setFilterValue(e.target.value)
+                      }
+                      className="w-full mt-1 border text-xs"
+                    />
+                  </th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+
+          <tbody>
+            {table.getRowModel().rows.length === 0 ? (
+              <tr>
+                <td colSpan={columns.length} className="text-center py-4">
+                  No data found
+                </td>
+              </tr>
+            ) : (
+              table.getRowModel().rows.map((row) => (
+                <tr key={row.id}>
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id} className="border px-2 py-2">
                       {flexRender(
-                        header.column.columnDef.header,
-                        header.getContext(),
+                        cell.column.columnDef.cell,
+                        cell.getContext(),
                       )}
-                      <input
-                        onChange={(e) =>
-                          header.column.setFilterValue(e.target.value)
-                        }
-                        placeholder="Filter..."
-                        className="mt-1 w-full border px-2 py-1 rounded text-xs"
-                      />
-                    </th>
+                    </td>
                   ))}
                 </tr>
-              ))}
-            </thead>
-
-            <tbody>
-              {table.getRowModel().rows.length === 0 ? (
-                <tr>
-                  <td colSpan={columns.length} className="text-center py-6">
-                    No data found
-                  </td>
-                </tr>
-              ) : (
-                table.getRowModel().rows.map((row, i) => (
-                  <tr
-                    key={row.id}
-                    className={`${
-                      i % 2 === 0 ? "bg-white" : "bg-gray-50"
-                    } hover:bg-blue-50`}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="px-4 py-2 border-b">
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext(),
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
 
       {/* PAGINATION */}
-      <div className="flex justify-between mt-4 items-center bg-white p-4 rounded-xl shadow">
+      <div className="flex justify-between mt-4 items-center">
         <div>
           Rows:
           <select
             onChange={(e) => table.setPageSize(Number(e.target.value))}
             value={table.getState().pagination.pageSize}
-            className="ml-2 border px-2 py-1 rounded"
+            className="ml-2 border"
           >
             {[10, 20, 50, 100].map((s) => (
               <option key={s}>{s}</option>
@@ -320,28 +307,16 @@ export default function DataTable({ data }: Props) {
       </div>
 
       {/* COUNTS */}
-      <div className="flex justify-end gap-4 mt-6">
-        <div className="">
-          <button
-            onClick={downloadCountsWord}
-            className="px-4 py-2 bg-blue-600 text-white rounded-xl shadow hover:bg-blue-700"
-          >
-            ⬇ Download Word
-          </button>
-        </div>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-6">
         {countFields.map((field) => (
-          <div key={field} className="bg-white rounded-xl shadow p-4">
+          <div key={field} className="border p-3 rounded">
             <h3 className="font-semibold mb-2">{field}</h3>
-            <div className="max-h-40 overflow-auto text-sm">
-              {getCounts(field).map(([v, c]) => (
-                <div key={v} className="flex justify-between border-b">
-                  <span>{v}</span>
-                  <span>{c}</span>
-                </div>
-              ))}
-            </div>
+            {getCounts(field).map(([v, c]) => (
+              <div key={v} className="flex justify-between text-sm">
+                <span>{v}</span>
+                <span>{c}</span>
+              </div>
+            ))}
           </div>
         ))}
       </div>

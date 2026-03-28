@@ -25,7 +25,6 @@ export default function Page() {
     if (res.success) {
       setData(res.data!);
       setFileBase64(res.file);
-      localStorage.setItem("mergedData", JSON.stringify(res.data));
     } else {
       alert(res.message);
     }
@@ -71,31 +70,29 @@ export default function Page() {
 
           {/* FILE LIST */}
           {files.length > 0 && (
-            <>
-              <div className="my-4 space-y-2">
-                <p className="text-sm font-medium text-gray-700">
-                  Selected Files:
-                </p>
+            <div className="mt-4 space-y-2">
+              <p className="text-sm font-medium text-gray-700">
+                Selected Files:
+              </p>
 
-                {files.map((file, i) => (
-                  <div
-                    key={i}
-                    className="flex justify-between items-center bg-gray-100 px-3 py-2 rounded-lg"
+              {files.map((file, i) => (
+                <div
+                  key={i}
+                  className="flex justify-between items-center bg-gray-100 px-3 py-2 rounded-lg"
+                >
+                  <span className="text-sm text-gray-700">{file.name}</span>
+
+                  <button
+                    onClick={() =>
+                      setFiles((prev) => prev.filter((_, idx) => idx !== i))
+                    }
+                    className="text-red-500 text-xs hover:underline"
                   >
-                    <span className="text-sm text-gray-700">{file.name}</span>
-
-                    <button
-                      onClick={() =>
-                        setFiles((prev) => prev.filter((_, idx) => idx !== i))
-                      }
-                      className="text-red-500 text-xs hover:underline"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </>
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
 
           {/* ACTION BUTTONS */}
@@ -113,15 +110,12 @@ export default function Page() {
             </button>
 
             {data.length > 0 && (
-              <>
-                <button
-                  onClick={handleDownload}
-                  className="px-5 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition"
-                >
-                  Download Excel
-                </button>
-               
-              </>
+              <button
+                onClick={handleDownload}
+                className="px-5 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition"
+              >
+                Download Excel
+              </button>
             )}
           </div>
         </div>
