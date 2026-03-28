@@ -7,14 +7,14 @@ const normalize = (str: string) => str.replace(/\s|_/g, "").toLowerCase();
 
 // 🔥 Column mapping (important)
 const COLUMN_MAP: Record<string, string[]> = {
-  name: ["name", "employee name", "participants name", "Participants Name"],
-  designation: ["designation", "post"],
-  district: ["district"],
-  state: ["state"],
-  mode: ["mode"],
-  "course director": ["course director", "director"],
   "program name": ["program name", "program"],
   mission: ["mission"],
+  mode: ["mode"],
+  "course director": ["course director", "director"],
+  state: ["state"],
+  district: ["district"],
+  designation: ["designation", "post"],
+  name: ["name", "employee name", "participants name", "Participants Name"],
   remarks: ["remarks", "comment"],
 };
 
@@ -81,14 +81,14 @@ function parseSheet(sheet: XLSX.WorkSheet) {
 function mapRow(row: any, i: number) {
   const output: any = {
     "Sl no": i + 1,
-    Name: "",
-    Designation: "",
-    District: "",
-    State: "",
-    Mode: "",
-    "Course director": "",
-    "Program name": "",
+    "Program Name": "",
     Mission: "",
+    Mode: "",
+    "Course Director": "",
+    State: "",
+    District: "",
+    Designation: "",
+    Name: "",
     Remarks: "",
   };
 

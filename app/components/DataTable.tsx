@@ -115,22 +115,41 @@ export default function DataTable({ data }: Props) {
   // =====================
   // 🔥 COUNTS
   // =====================
+  function normalizeValue(value: any) {
+    if (!value) return "Unknown";
+
+    return String(value).trim().toLowerCase(); // 👈 key fix
+  }
+
+  // Optional: format for display
+  function formatValue(value: string) {
+    return value.charAt(0).toUpperCase() + value.slice(1);
+  }
+
   function getCounts(key: string) {
     const counts: Record<string, number> = {};
 
     filteredRows.forEach((row) => {
-      const value = row.original[key] || "Unknown";
-      counts[value] = (counts[value] || 0) + 1;
+      const raw = row.original[key];
+      const normalized = normalizeValue(raw);
+
+      counts[normalized] = (counts[normalized] || 0) + 1;
     });
 
-    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    return Object.entries(counts)
+      .map(([value, count]) => ({
+        value,
+        display: formatValue(value), // 👈 nice UI
+        count,
+      }))
+      .sort((a, b) => b.count - a.count);
   }
 
   const countFields = [
     "District",
     "State",
     "Designation",
-    "Name",
+    "Mission",
     "Program name",
     "Mode",
   ];
@@ -138,9 +157,9 @@ export default function DataTable({ data }: Props) {
   // =====================
   // 🔥 DOWNLOAD WORD
   // =====================
+
   async function downloadCountsWord() {
     const sections: any[] = [];
-
     const children: any[] = [];
 
     // 🔥 TITLE
@@ -157,15 +176,22 @@ export default function DataTable({ data }: Props) {
       }),
     );
 
-    // 🔥 EACH FIELD AS TABLE
+    // 🔥 EACH FIELD
     countFields.forEach((field) => {
       children.push(
         new Paragraph({
-          children: [new TextRun({ text: field, bold: true })],
+          children: [
+            new TextRun({
+              text: field,
+              bold: true,
+              size: 28,
+            }),
+          ],
           spacing: { after: 200 },
         }),
       );
 
+      // HEADER
       const rows = [
         new TableRow({
           children: [
@@ -179,12 +205,13 @@ export default function DataTable({ data }: Props) {
         }),
       ];
 
-      getCounts(field).forEach(([value, count]) => {
+      // DATA
+      getCounts(field).forEach(({ display, count }) => {
         rows.push(
           new TableRow({
             children: [
               new TableCell({
-                children: [new Paragraph(value)],
+                children: [new Paragraph(display)],
               }),
               new TableCell({
                 children: [new Paragraph(String(count))],
@@ -201,13 +228,12 @@ export default function DataTable({ data }: Props) {
         }),
       );
 
-      children.push(new Paragraph("")); // spacing
+      children.push(new Paragraph(""));
     });
 
     sections.push({ children });
 
     const doc = new Document({ sections });
-
     const blob = await Packer.toBlob(doc);
     saveAs(blob, "counts.docx");
   }
@@ -335,10 +361,10 @@ export default function DataTable({ data }: Props) {
           <div key={field} className="bg-white rounded-xl shadow p-4">
             <h3 className="font-semibold mb-2">{field}</h3>
             <div className="max-h-40 overflow-auto text-sm">
-              {getCounts(field).map(([v, c]) => (
-                <div key={v} className="flex justify-between border-b">
-                  <span>{v}</span>
-                  <span>{c}</span>
+              {getCounts(field).map(({ value, display, count }) => (
+                <div key={value} className="flex justify-between">
+                  <span>{display}</span>
+                  <span>{count}</span>
                 </div>
               ))}
             </div>
