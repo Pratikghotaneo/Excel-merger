@@ -7,7 +7,7 @@ const normalize = (str: string) => str.replace(/\s|_/g, "").toLowerCase();
 
 // 🔥 Column mapping (important)
 const COLUMN_MAP: Record<string, string[]> = {
-  "program name": ["program name", "program"],
+  "program name": ["program", "program name"],
   mission: ["mission"],
   mode: ["mode"],
   "course director": ["course director", "director"],
@@ -78,9 +78,9 @@ function parseSheet(sheet: XLSX.WorkSheet) {
 }
 
 // 🔥 Map row → required format
-function mapRow(row: any, i: number) {
+function mapRow(row: any, count: number) {
   const output: any = {
-    "Sl no": i + 1,
+    "Sl no": count + 1,
     "Program Name": "",
     Mission: "",
     Mode: "",
@@ -92,12 +92,40 @@ function mapRow(row: any, i: number) {
     Remarks: "",
   };
 
+  // 🔥 STEP 1: Normalize all row keys once
+  const normalizedRow: Record<string, any> = {};
+  Object.keys(row).forEach((key) => {
+    normalizedRow[normalize(key)] = row[key];
+  });
+
+  // 🔥 STEP 2: Mapping with priority
   Object.entries(COLUMN_MAP).forEach(([target, possibleKeys]) => {
-    for (const key of Object.keys(row)) {
-      if (possibleKeys.includes(key)) {
-        output[
-          Object.keys(output).find((k) => normalize(k) === normalize(target))!
-        ] = row[key];
+    const outputKey = Object.keys(output).find(
+      (k) => normalize(k) === normalize(target),
+    );
+
+    if (!outputKey) return;
+
+    // 🔥 STEP 3: First try exact full matches
+    for (const key of possibleKeys) {
+      const normalizedKey = normalize(key);
+
+      if (normalizedRow.hasOwnProperty(normalizedKey)) {
+        output[outputKey] = normalizedRow[normalizedKey];
+        return;
+      }
+    }
+
+    // 🔥 STEP 4: fallback (contains match, but safe)
+    for (const key of Object.keys(normalizedRow)) {
+      for (const possible of possibleKeys) {
+        const normalizedPossible = normalize(possible);
+
+        // only allow fallback if exact not found
+        if (key.includes(normalizedPossible)) {
+          output[outputKey] = normalizedRow[key];
+          return;
+        }
       }
     }
   });
