@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { mergeExcelFiles } from "./actions";
 import DataTable from "./components/DataTable";
 
@@ -11,7 +11,10 @@ export default function Page() {
   const [fileBase64, setFileBase64] = useState("");
 
   const handleMerge = async () => {
-    if (!files.length) return;
+    if (!files.length) {
+      setData([]);
+      return;
+    }
 
     setLoading(true);
 
@@ -25,20 +28,20 @@ export default function Page() {
     if (res.success) {
       setData(res.data!);
       setFileBase64(res.file);
-      localStorage.setItem("mergedData", JSON.stringify(res.data));
+      // localStorage.setItem("mergedData", JSON.stringify(res.data));
     } else {
       alert(res.message);
     }
   };
 
-  const handleDownload = () => {
-    if (!fileBase64) return;
+  useEffect(() => {
+    if (!files.length) {
+      setData([]);
+      return;
+    }
 
-    const link = document.createElement("a");
-    link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${fileBase64}`;
-    link.download = "merged.xlsx";
-    link.click();
-  };
+    handleMerge();
+  }, [files]);
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -111,18 +114,6 @@ export default function Page() {
             >
               {loading ? "Merging..." : "Merge Files"}
             </button>
-
-            {data.length > 0 && (
-              <>
-                <button
-                  onClick={handleDownload}
-                  className="px-5 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition"
-                >
-                  Download Excel
-                </button>
-               
-              </>
-            )}
           </div>
         </div>
 
@@ -133,7 +124,7 @@ export default function Page() {
               Preview Data
             </h2>
 
-            <DataTable data={data} />
+            <DataTable data={data} fileBase64={fileBase64} />
           </div>
         )}
       </div>
