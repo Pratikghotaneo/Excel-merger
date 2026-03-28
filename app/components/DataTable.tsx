@@ -229,7 +229,7 @@ export default function DataTable({ data }: Props) {
 
       {/* TABLE */}
       <div className="bg-white rounded-2xl shadow overflow-hidden">
-        <div className="overflow-auto max-h-[500px]">
+        <div className="overflow-auto max-h-170">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-100 sticky top-0">
               {table.getHeaderGroups().map((hg) => (

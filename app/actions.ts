@@ -7,7 +7,7 @@ const normalize = (str: string) => str.replace(/\s|_/g, "").toLowerCase();
 
 // 🔥 Column mapping (important)
 const COLUMN_MAP: Record<string, string[]> = {
-  name: ["name", "employee name"],
+  name: ["name", "employee name", "participants name", "Participants Name"],
   designation: ["designation", "post"],
   district: ["district"],
   state: ["state"],
