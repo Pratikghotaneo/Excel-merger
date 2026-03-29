@@ -179,7 +179,7 @@ export default function DataTable({ data, fileBase64 }: Props) {
     "District",
     "State",
     "Designation",
-    "Name",
+    "Mission",
     "Program name",
     "Mode",
   ];
