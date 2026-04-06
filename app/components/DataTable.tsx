@@ -21,6 +21,7 @@ import {
   TextRun,
 } from "docx";
 import { saveAs } from "file-saver";
+import { formatDisplayText } from "@/utils/helper";
 
 type Props = {
   data: any[];
@@ -158,22 +159,52 @@ export default function DataTable({ data, fileBase64 }: Props) {
   // =====================
   // 🔥 COUNTS
   // =====================
-  function getCounts(key: string) {
-    const counts: Record<string, number> = {};
+function getCounts(key: string) {
+  const counts: Record<
+    string,
+    { display: string; count: number }
+  > = {};
 
-    filteredRows.forEach((row) => {
-      const value = row.original[key] || "Unknown";
-      counts[value] = (counts[value] || 0) + 1;
-    });
+  // 🔹 normalize helper (handles case + spaces)
+  const normalize = (str: string) =>
+    str.toLowerCase().replace(/\s+/g, "");
 
-    return Object.entries(counts)
-      .map(([value, count]) => ({
-        value,
-        display: value,
-        count,
-      }))
-      .sort((a, b) => b.count - a.count);
-  }
+  filteredRows.forEach((row) => {
+    const original = row.original;
+
+    // 🔹 match correct key
+    const matchedKey = Object.keys(original).find(
+      (k) => normalize(k) === normalize(key)
+    );
+
+    const rawValue = matchedKey ? original[matchedKey] : null;
+
+    const value =
+      rawValue && String(rawValue).trim() !== ""
+        ? String(rawValue).trim()
+        : "Unknown";
+
+    // 🔥 case-insensitive grouping key
+    const groupKey = value.toLowerCase();
+
+    if (counts[groupKey]) {
+      counts[groupKey].count++;
+    } else {
+      counts[groupKey] = {
+        display: formatDisplayText(value), // keep original casing
+        count: 1,
+      };
+    }
+  });
+
+  return Object.values(counts)
+    .map(({ display, count }) => ({
+      value: display,
+      display,
+      count,
+    }))
+    .sort((a, b) => b.count - a.count);
+}
 
   const countFields = [
     "District",
@@ -206,51 +237,66 @@ export default function DataTable({ data, fileBase64 }: Props) {
   // =====================
   // 🔥 DOWNLOAD WORD
   // =====================
-  async function downloadCountsWord() {
-    const children: any[] = [];
+async function downloadCountsWord() {
+  const children: any[] = [];
 
-    countFields.forEach((field) => {
-      children.push(
-        new Paragraph({
-          children: [new TextRun({ text: field, bold: true })],
-        }),
-      );
+  const normalize = (str: string) =>
+    str.toLowerCase().replace(/\s+/g, "");
 
-      const rows = [
+  countFields.forEach((field) => {
+    // 🔹 Title
+    children.push(
+      new Paragraph({
+        children: [new TextRun({ text: field, bold: true })],
+      }),
+    );
+
+    const rows = [
+      new TableRow({
+        children: [
+          new TableCell({
+            children: [new Paragraph("Value")],
+          }),
+          new TableCell({
+            children: [new Paragraph("Count")],
+          }),
+        ],
+      }),
+    ];
+
+    // 🔹 FIX: normalize field before passing
+    const sortedCounts = getCounts(field).sort((a, b) =>
+      (a.display || "").localeCompare(b.display || "", undefined, {
+        sensitivity: "base",
+      }),
+    );
+
+    sortedCounts.forEach(({ display, count }) => {
+      rows.push(
         new TableRow({
           children: [
             new TableCell({
-              children: [new Paragraph("Value")],
+              children: [
+                new Paragraph(
+                  display && display.trim() !== "" ? display : "Unknown",
+                ),
+              ],
             }),
             new TableCell({
-              children: [new Paragraph("Count")],
+              children: [new Paragraph(String(count))],
             }),
           ],
         }),
-      ];
-
-      getCounts(field).forEach(({ display, count }) => {
-        rows.push(
-          new TableRow({
-            children: [
-              new TableCell({
-                children: [new Paragraph(display)],
-              }),
-              new TableCell({
-                children: [new Paragraph(String(count))],
-              }),
-            ],
-          }),
-        );
-      });
-
-      children.push(new Table({ rows }));
+      );
     });
 
-    const doc = new Document({ sections: [{ children }] });
-    const blob = await Packer.toBlob(doc);
-    saveAs(blob, "counts.docx");
-  }
+    children.push(new Table({ rows }));
+  });
+
+  const doc = new Document({ sections: [{ children }] });
+  const blob = await Packer.toBlob(doc);
+  saveAs(blob, "counts.docx");
+}
 
   const handleDownload = () => {
     if (!fileBase64) return;
