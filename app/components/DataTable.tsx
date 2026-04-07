@@ -19,6 +19,7 @@ import {
   TableRow,
   TableCell,
   TextRun,
+  WidthType,
 } from "docx";
 import { saveAs } from "file-saver";
 import { formatDisplayText } from "@/utils/helper";
@@ -157,6 +158,22 @@ export default function DataTable({ data, fileBase64 }: Props) {
   }, [filteredRows.length]);
 
   // =====================
+  // 🔥 TOTALS
+  // =====================
+
+function getTotal(key: string) {
+  const counts = getCounts(key);
+
+  return counts
+    .filter(
+      (item) =>
+        item.display &&
+        item.display.toLowerCase() !== "unknown"
+    )
+    .reduce((sum, item) => sum + item.count, 0);
+}
+  
+  // =====================
   // 🔥 COUNTS
   // =====================
 function getCounts(key: string) {
@@ -192,7 +209,7 @@ function getCounts(key: string) {
     } else {
       counts[groupKey] = {
         display: formatDisplayText(value), // keep original casing
-        count: 1,
+        count: 1
       };
     }
   });
@@ -240,60 +257,126 @@ function getCounts(key: string) {
 async function downloadCountsWord() {
   const children: any[] = [];
 
-  const normalize = (str: string) =>
-    str.toLowerCase().replace(/\s+/g, "");
-
   countFields.forEach((field) => {
     // 🔹 Title
     children.push(
       new Paragraph({
-        children: [new TextRun({ text: field, bold: true })],
-      }),
+        spacing: { after: 200 },
+        children: [
+          new TextRun({
+            text: field,
+            bold: true,
+            size: 28,
+          }),
+        ],
+      })
     );
 
-    const rows = [
+    // 🔹 Get + sort
+    const sortedCounts = getCounts(field).sort((a, b) =>
+      (a.display || "").localeCompare(b.display || "", undefined, {
+        sensitivity: "base",
+      })
+    );
+
+    // 🔹 Calculate total
+    const total = sortedCounts.reduce((sum, item) => sum + item.count, 0);
+
+    const rows: TableRow[] = [
+      // 🔹 Header Row
       new TableRow({
         children: [
           new TableCell({
-            children: [new Paragraph("Value")],
+            width: { size: 7000, type: WidthType.DXA },
+            children: [
+              new Paragraph({
+                children: [new TextRun({ text: "Value", bold: true })],
+              }),
+            ],
           }),
           new TableCell({
-            children: [new Paragraph("Count")],
+            width: { size: 2000, type: WidthType.DXA },
+            children: [
+              new Paragraph({
+                children: [new TextRun({ text: "Count", bold: true })],
+              }),
+            ],
+          }),
+        ],
+      }),
+
+      // 🔥 TOTAL Row (TOP)
+      new TableRow({
+        children: [
+          new TableCell({
+            children: [
+              new Paragraph({
+                children: [new TextRun({ text: "TOTAL", bold: true })],
+              }),
+            ],
+          }),
+          new TableCell({
+            children: [
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: String(total),
+                    bold: true,
+                  }),
+                ],
+              }),
+            ],
           }),
         ],
       }),
     ];
 
-    // 🔹 FIX: normalize field before passing
-    const sortedCounts = getCounts(field).sort((a, b) =>
-      (a.display || "").localeCompare(b.display || "", undefined, {
-        sensitivity: "base",
-      }),
-    );
-
+    // 🔹 Data Rows
     sortedCounts.forEach(({ display, count }) => {
       rows.push(
         new TableRow({
           children: [
             new TableCell({
+              width: { size: 7000, type: WidthType.DXA },
               children: [
                 new Paragraph(
-                  display && display.trim() !== "" ? display : "Unknown",
+                  display && display.trim() !== ""
+                    ? display
+                    : "Unknown"
                 ),
               ],
             }),
             new TableCell({
+              width: { size: 2000, type: WidthType.DXA },
               children: [new Paragraph(String(count))],
             }),
           ],
-        }),
+        })
       );
     });
 
-    children.push(new Table({ rows }));
+    // 🔹 Table
+    children.push(
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows,
+      })
+    );
+
+    // 🔹 Space between sections
+    children.push(
+      new Paragraph({
+        text: "",
+        spacing: { after: 300 },
+      })
+    );
   });
 
-  const doc = new Document({ sections: [{ children }] });
+  // 🔹 Document
+  const doc = new Document({
+    sections: [{ children }],
+  });
+
   const blob = await Packer.toBlob(doc);
   saveAs(blob, "counts.docx");
 }
@@ -462,6 +545,10 @@ async function downloadCountsWord() {
                   <span>{count}</span>
                 </div>
               ))}
+              <div className="flex justify-between font-bold mt-2">
+                <span>Total:</span>
+                <span>{getTotal(field)}</span>
+              </div>
             </div>
           </div>
         ))}
