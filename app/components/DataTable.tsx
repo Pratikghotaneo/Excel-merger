@@ -10,6 +10,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useState, useEffect, useMemo } from "react";
+import { useDebounce } from "use-debounce";
 import * as XLSX from "xlsx";
 import {
   Document,
@@ -22,8 +23,7 @@ import {
   WidthType,
 } from "docx";
 import { saveAs } from "file-saver";
-import { formatDisplayText } from "@/utils/helper";
-import { useCounts } from "@/hooks/useCount";
+import { useCountsApi } from "@/hooks/useCountApi";
 
 type Props = {
   data: any[];
@@ -35,6 +35,9 @@ export default function DataTable({ data, fileBase64 }: Props) {
   const [sorting, setSorting] = useState<any[]>([]);
   const [columnFilters, setColumnFilters] = useState<any[]>([]);
 
+  // ✅ DEBOUNCE (BIG PERFORMANCE BOOST)
+  const [debouncedFilter] = useDebounce(globalFilter, 300);
+
   // =====================
   // 🔥 CLEAN DATA
   // =====================
@@ -42,10 +45,6 @@ export default function DataTable({ data, fileBase64 }: Props) {
     if (!value) return "";
 
     let str = String(value).trim();
-
-    // if (key === "Designation") {
-    //   return str.toUpperCase().replace(/\./g, "").replace(/\s+/g, "");
-    // }
 
     if (key === "State" || key === "District") {
       return str.toLowerCase().replace(/\s+/g, " ").trim();
@@ -74,7 +73,9 @@ export default function DataTable({ data, fileBase64 }: Props) {
       header: ({ column }) => (
         <div className="flex flex-col gap-1">
           <button
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            onClick={() =>
+              column.toggleSorting(column.getIsSorted() === "asc")
+            }
             className="font-semibold text-left hover:text-blue-600"
           >
             {key}
@@ -86,14 +87,14 @@ export default function DataTable({ data, fileBase64 }: Props) {
             value={(column.getFilterValue() as string) ?? ""}
             onChange={(e) => column.setFilterValue(e.target.value)}
             placeholder="Search..."
-            className="border px-2 py-1 text-xs rounded focus:ring-1 focus:ring-blue-500"
+            className="border px-2 py-1 text-xs rounded"
           />
         </div>
       ),
 
       cell: (info) => info.getValue() || "-",
     }));
-  }, [cleanedData]); // 🔥 important
+  }, [cleanedData]);
 
   // =====================
   // 🔥 TABLE
@@ -102,14 +103,11 @@ export default function DataTable({ data, fileBase64 }: Props) {
     data: cleanedData,
     columns,
     state: {
-      globalFilter,
+      globalFilter: debouncedFilter, // ✅ use debounced value
       sorting,
       columnFilters,
     },
-    onGlobalFilterChange: (val) => {
-      setGlobalFilter(val);
-      table.setPageIndex(0);
-    },
+    onGlobalFilterChange: setGlobalFilter,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
 
@@ -119,61 +117,13 @@ export default function DataTable({ data, fileBase64 }: Props) {
     getPaginationRowModel: getPaginationRowModel(),
 
     autoResetPageIndex: false,
-    initialState: {
-      pagination: { pageSize: 10 },
-    },
   });
 
   const filteredRows = table.getFilteredRowModel().rows;
 
-  const { getCounts, getTotal } = useCounts(filteredRows);
-
-
   // =====================
-  // 🔥 PAGINATION
+  // 🔥 FIELDS
   // =====================
-  const pageIndex = table.getState().pagination.pageIndex;
-  const pageCount = table.getPageCount();
-
-  const safeNext = () => {
-    if (pageIndex < pageCount - 1) table.nextPage();
-  };
-
-  const safePrev = () => {
-    if (pageIndex > 0) table.previousPage();
-  };
-
-  const safeLast = () => {
-    table.setPageIndex(Math.max(pageCount - 1, 0));
-  };
-
-  const safeFirst = () => {
-    table.setPageIndex(0);
-  };
-
-  useEffect(() => {
-    table.setPageIndex(0);
-  }, [globalFilter, columnFilters]);
-
-  useEffect(() => {
-    if (pageIndex >= pageCount) {
-      table.setPageIndex(Math.max(pageCount - 1, 0));
-    }
-  }, [filteredRows.length]);
-
-  // =====================
-  // 🔥 TOTALS
-  // =====================
-
-// 🔹 normalize helper (move outside so it's not recreated every time)
-const normalize = (str: string) =>
-  str.toLowerCase().replace(/\s+/g, "");
-
-// 🔹 cache for memoization (important for Vercel performance)
-const countsCache = new Map<string, any>();
-
-
-
   const countFields = [
     "District",
     "State",
@@ -183,41 +133,55 @@ const countsCache = new Map<string, any>();
     "Mode",
   ];
 
-const countsData = useMemo(() => {
-  return countFields.map((field) => ({
-    field,
-    counts: getCounts(field),
-    total: getTotal(field),
-  }));
-}, [filteredRows, countFields]);
-
+  // =====================
+  // 🚀 API COUNTS
+  // =====================
+  const { data: countsMap, isLoading } = useCountsApi(
+    filteredRows.map((r) => r.original),
+    countFields
+  );
 
   // =====================
-  // 🔥 DOWNLOAD EXCEL
+  // 🔥 PAGINATION
   // =====================
-  function downloadCountsExcel() {
-    const wb = XLSX.utils.book_new();
+  const pageIndex = table.getState().pagination.pageIndex;
+  const pageCount = table.getPageCount();
 
-    countFields.forEach((field) => {
-    const data = getCounts(field).map(({ display, count }: { display: string; count: number }) => ({
-        Count: count,
-      }));
-
-      const sheet = XLSX.utils.json_to_sheet(data);
-      XLSX.utils.book_append_sheet(wb, sheet, field);
-    });
-
-    XLSX.writeFile(wb, "counts.xlsx");
-  }
+  useEffect(() => {
+    table.setPageIndex(0);
+  }, [debouncedFilter, columnFilters]);
 
   // =====================
   // 🔥 DOWNLOAD WORD
   // =====================
-async function downloadCountsWord() {
+ async function downloadCountsWord() {
+  if (!countsMap) return;
+
   const children: any[] = [];
 
   countFields.forEach((field) => {
-    // 🔹 Title
+    const data = countsMap[field];
+
+    // 🔤 SORT ALPHABETICALLY
+    const sortedCounts = [...data.counts].sort((a, b) =>
+      (a.display || "").localeCompare(b.display || "", undefined, {
+        sensitivity: "base",
+      })
+    );
+
+    // 🔠 TITLE CASE (ALL WORDS CAPITAL)
+    const toTitleCase = (str: string) => {
+      if (!str) return "Unknown";
+      return str
+        .toLowerCase()
+        .split(" ")
+        .map((word) =>
+          word ? word.charAt(0).toUpperCase() + word.slice(1) : ""
+        )
+        .join(" ");
+    };
+
+    // 🔥 SECTION TITLE
     children.push(
       new Paragraph({
         spacing: { after: 200 },
@@ -231,22 +195,12 @@ async function downloadCountsWord() {
       })
     );
 
-    // 🔹 Get + sort
-    const sortedCounts = getCounts(field).sort((a: { count: number; display?: string }, b: { count: number; display?: string }) =>
-      (a.display || "").localeCompare(b.display || "", undefined, {
-        sensitivity: "base",
-      })
-    );
-
-    // 🔹 Calculate total
-    const total = sortedCounts.reduce((sum: number, item: { count: number; display?: string }) => sum + item.count, 0);
-
+    // 🔥 TABLE ROWS
     const rows: TableRow[] = [
-      // 🔹 Header Row
+      // ✅ HEADER
       new TableRow({
         children: [
           new TableCell({
-            width: { size: 7000, type: WidthType.DXA },
             children: [
               new Paragraph({
                 children: [new TextRun({ text: "Value", bold: true })],
@@ -254,7 +208,6 @@ async function downloadCountsWord() {
             ],
           }),
           new TableCell({
-            width: { size: 2000, type: WidthType.DXA },
             children: [
               new Paragraph({
                 children: [new TextRun({ text: "Count", bold: true })],
@@ -264,7 +217,7 @@ async function downloadCountsWord() {
         ],
       }),
 
-      // 🔥 TOTAL Row (TOP)
+      // 🔥 TOTAL ROW (TOP)
       new TableRow({
         children: [
           new TableCell({
@@ -279,7 +232,7 @@ async function downloadCountsWord() {
               new Paragraph({
                 children: [
                   new TextRun({
-                    text: String(total),
+                    text: String(data.total),
                     bold: true,
                   }),
                 ],
@@ -290,31 +243,28 @@ async function downloadCountsWord() {
       }),
     ];
 
-    // 🔹 Data Rows
-    sortedCounts.forEach(({ display, count }: { count: number; display?: string }) => {
+    // 🔥 DATA ROWS (SORTED + TITLE CASE)
+    sortedCounts.forEach((item: any) => {
+      const displayText =
+        item.display && item.display.trim() !== ""
+          ? toTitleCase(item.display)
+          : "Unknown";
+
       rows.push(
         new TableRow({
           children: [
             new TableCell({
-              width: { size: 7000, type: WidthType.DXA },
-              children: [
-                new Paragraph(
-                  display && display.trim() !== ""
-                    ? display
-                    : "Unknown"
-                ),
-              ],
+              children: [new Paragraph(displayText)],
             }),
             new TableCell({
-              width: { size: 2000, type: WidthType.DXA },
-              children: [new Paragraph(String(count))],
+              children: [new Paragraph(String(item.count))],
             }),
           ],
         })
       );
     });
 
-    // 🔹 Table
+    // 🔥 TABLE
     children.push(
       new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
@@ -322,7 +272,7 @@ async function downloadCountsWord() {
       })
     );
 
-    // 🔹 Space between sections
+    // 🔥 SPACING
     children.push(
       new Paragraph({
         text: "",
@@ -331,7 +281,7 @@ async function downloadCountsWord() {
     );
   });
 
-  // 🔹 Document
+  // 🔥 DOCUMENT
   const doc = new Document({
     sections: [{ children }],
   });
@@ -349,77 +299,94 @@ async function downloadCountsWord() {
     link.click();
   };
 
-  return (
-    <div className="p-4 md:p-6 bg-gray-50 min-h-screen">
-      {/* HEADER */}
-      <div className="flex flex-col md:flex-row md:justify-between gap-4 mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">📊 Data Dashboard</h1>
+ return (
+  <div className="p-6 bg-gray-50 min-h-screen">
+    {/* HEADER */}
+    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+      <h1 className="text-2xl font-bold text-gray-800">
+        📊 Data Dashboard
+      </h1>
 
-        <button
-          onClick={handleDownload}
-          className="px-5 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition"
-        >
-          Download Excel
-        </button>
-      </div>
+      <button
+        onClick={handleDownload}
+        className="px-4 py-2 bg-green-600 text-white rounded-lg shadow hover:bg-green-700 transition"
+      >
+        ⬇ Download Excel
+      </button>
+    </div>
 
-      {/* TABLE */}
-      <div className="bg-gray-500 rounded-2xl shadow-lg overflow-hidden">
-        <div className="overflow-y-auto max-h-125">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-100 sticky top-0">
-              {table.getHeaderGroups().map((hg) => (
-                <tr key={hg.id}>
-                  {hg.headers.map((h) => (
-                    <th key={h.id} className="px-4 py-3 border-b text-left">
-                      {flexRender(h.column.columnDef.header, h.getContext())}
-                    </th>
+    {/* TABLE CARD */}
+    <div className="bg-white rounded-2xl shadow-lg border overflow-hidden">
+      <div className="overflow-auto max-h-[500px]">
+        <table className="min-w-full text-sm">
+          {/* HEADER */}
+          <thead className="bg-gray-100 sticky top-0 z-10">
+            {table.getHeaderGroups().map((hg) => (
+              <tr key={hg.id}>
+                {hg.headers.map((h) => (
+                  <th
+                    key={h.id}
+                    className="px-4 py-3 text-left font-semibold text-gray-700 border-b"
+                  >
+                    {flexRender(
+                      h.column.columnDef.header,
+                      h.getContext()
+                    )}
+                  </th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+
+          {/* BODY */}
+          <tbody>
+            {table.getRowModel().rows.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={table.getAllColumns().length}
+                  className="text-center py-8 text-gray-500"
+                >
+                  No data found
+                </td>
+              </tr>
+            ) : (
+              table.getRowModel().rows.map((row, i) => (
+                <tr
+                  key={row.id}
+                  className={`${
+                    i % 2 === 0 ? "bg-white" : "bg-gray-50"
+                  } hover:bg-blue-50 transition`}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <td
+                      key={cell.id}
+                      className="px-4 py-2 border-b text-gray-700"
+                    >
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext()
+                      )}
+                    </td>
                   ))}
                 </tr>
-              ))}
-            </thead>
-
-            <tbody>
-              {table.getRowModel().rows.length === 0 ? (
-                <tr>
-                  <td colSpan={columns.length} className="text-center py-6">
-                    No data found
-                  </td>
-                </tr>
-              ) : (
-                table.getRowModel().rows.map((row, i) => (
-                  <tr
-                    key={row.id}
-                    className={`${
-                      i % 2 === 0 ? "bg-white" : "bg-gray-50"
-                    } hover:bg-blue-50`}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="px-4 py-2 border-b">
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext(),
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
 
       {/* PAGINATION */}
-      <div className="flex flex-col md:flex-row justify-between items-center mt-6 gap-4 bg-white p-4 rounded-xl shadow">
-        {/* LEFT: ROWS PER PAGE */}
+      <div className="flex flex-col md:flex-row items-center justify-between gap-4 px-4 py-3 bg-gray-50 border-t">
+        {/* LEFT */}
         <div className="flex items-center gap-2 text-sm">
           <span className="text-gray-600">Rows per page:</span>
 
           <select
             value={table.getState().pagination.pageSize}
-            onChange={(e) => table.setPageSize(Number(e.target.value))}
-            className="border px-2 py-1 rounded-md focus:ring-2 focus:ring-blue-500"
+            onChange={(e) =>
+              table.setPageSize(Number(e.target.value))
+            }
+            className="border px-2 py-1 rounded-md"
           >
             {[10, 20, 50, 100].map((size) => (
               <option key={size} value={size}>
@@ -429,90 +396,141 @@ async function downloadCountsWord() {
           </select>
         </div>
 
-        {/* CENTER: PAGE INFO */}
+        {/* CENTER */}
         <div className="text-sm text-gray-600">
           Page{" "}
-          <span className="font-semibold text-gray-800">{pageIndex + 1}</span>{" "}
-          of <span className="font-semibold text-gray-800">{pageCount}</span>
+          <span className="font-semibold text-gray-800">
+            {table.getState().pagination.pageIndex + 1}
+          </span>{" "}
+          of{" "}
+          <span className="font-semibold text-gray-800">
+            {table.getPageCount()}
+          </span>
         </div>
 
-        {/* RIGHT: CONTROLS */}
+        {/* RIGHT */}
         <div className="flex gap-2">
           <button
-            onClick={safeFirst}
-            disabled={pageIndex === 0}
+            onClick={() => table.setPageIndex(0)}
+            disabled={!table.getCanPreviousPage()}
             className="px-3 py-1 border rounded-lg hover:bg-gray-100 disabled:opacity-40"
           >
             ⏮
           </button>
 
           <button
-            onClick={safePrev}
-            disabled={pageIndex === 0}
+            onClick={() => table.previousPage()}
+            disabled={!table.getCanPreviousPage()}
             className="px-3 py-1 border rounded-lg hover:bg-gray-100 disabled:opacity-40"
           >
             Prev
           </button>
 
           <button
-            onClick={safeNext}
-            disabled={pageIndex >= pageCount - 1}
+            onClick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
             className="px-3 py-1 border rounded-lg hover:bg-gray-100 disabled:opacity-40"
           >
             Next
           </button>
 
           <button
-            onClick={safeLast}
-            disabled={pageIndex >= pageCount - 1}
+            onClick={() =>
+              table.setPageIndex(table.getPageCount() - 1)
+            }
+            disabled={!table.getCanNextPage()}
             className="px-3 py-1 border rounded-lg hover:bg-gray-100 disabled:opacity-40"
           >
             ⏭
           </button>
         </div>
       </div>
+    </div>
 
-      {/* COUNTS */}
-      <div className="flex flex-col md:flex-row md:justify-between gap-4 my-8">
-        <h1 className="text-2xl font-bold text-gray-800">📊 Data Counts</h1>
-        {/* BUTTONS */}
-        <div className="flex flex-wrap gap-3 mb-6">
-          {/* <button
-            onClick={downloadCountsExcel}
-            className="px-4 py-2 bg-green-600 text-white rounded-xl shadow hover:bg-green-700"
-          >
-            ⬇ Excel
-          </button> */}
+    {/* COUNTS */}
+    <div className="mt-8">
+      <div className="flex items-center justify-between mb-4">
+         <h2 className="text-xl font-bold text-gray-800 mb-4">
+        📊 Data Insights
+      </h2>
 
-          <button
-            onClick={downloadCountsWord}
-            className="px-4 py-2 bg-blue-600 text-white rounded-xl shadow hover:bg-blue-700"
-          >
-            ⬇ Word
-          </button>
+      
+  
+
+    {/* Word */}
+    <button
+      onClick={downloadCountsWord}
+      className="px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700 transition"
+    >
+      ⬇ Word
+    </button>
+    </div>
+
+
+     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+  {isLoading && (
+    <p className="text-gray-500">Loading...</p>
+  )}
+
+  {countsMap &&
+    countFields.map((field) => {
+      const data = countsMap[field];
+
+      // 🔤 SORT ALPHABETICALLY
+      const sortedCounts = [...data.counts].sort((a, b) =>
+        (a.display || "").localeCompare(b.display || "", undefined, {
+          sensitivity: "base",
+        })
+      );
+
+      // 🔠 TITLE CASE
+      const toTitleCase = (str: string) => {
+        if (!str) return "Unknown";
+        return str
+          .toLowerCase()
+          .split(" ")
+          .map((word) =>
+            word ? word.charAt(0).toUpperCase() + word.slice(1) : ""
+          )
+          .join(" ");
+      };
+
+      return (
+        <div
+          key={field}
+          className="bg-white rounded-xl shadow p-4 border hover:shadow-md transition"
+        >
+          <h3 className="font-semibold text-gray-700 mb-2">
+            {field}
+          </h3>
+
+          <div className="max-h-40 overflow-auto text-sm">
+            {sortedCounts.slice(0, 20).map((item: any) => (
+              <div
+                key={item.display}
+                className="flex justify-between border-b py-1"
+              >
+                <span className="text-gray-600">
+                  {item.display && item.display.trim() !== ""
+                    ? toTitleCase(item.display)
+                    : "Unknown"}
+                </span>
+                <span className="font-medium">
+                  {item.count}
+                </span>
+              </div>
+            ))}
+
+            <div className="flex justify-between font-bold mt-2 text-blue-600">
+              <span>Total</span>
+              <span>{data.total}</span>
+            </div>
+          </div>
         </div>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-8">
-      {countsData.map(({ field, counts, total }) => (
-  <div key={field} className="bg-white rounded-xl shadow p-4">
-    <h3 className="font-semibold mb-2">{field}</h3>
-
-    <div className="max-h-40 overflow-auto text-sm">
-      {counts.map(({ value, count }: { value: string; count: number }) => (
-        <div key={value} className="flex justify-between border-b">
-          <span>{value}</span>
-          <span>{count}</span>
-        </div>
-      ))}
-
-      <div className="flex justify-between font-bold mt-2">
-        <span>Total:</span>
-        <span>{total}</span>
-      </div>
+      );
+    })}
+</div>
     </div>
   </div>
-))}
-      </div>
-    </div>
-  );
+);
 }
