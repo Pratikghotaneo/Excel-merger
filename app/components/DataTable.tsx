@@ -23,6 +23,7 @@ import {
 } from "docx";
 import { saveAs } from "file-saver";
 import { formatDisplayText } from "@/utils/helper";
+import { useCounts } from "@/hooks/useCount";
 
 type Props = {
   data: any[];
@@ -125,6 +126,9 @@ export default function DataTable({ data, fileBase64 }: Props) {
 
   const filteredRows = table.getFilteredRowModel().rows;
 
+  const { getCounts, getTotal } = useCounts(filteredRows);
+
+
   // =====================
   // 🔥 PAGINATION
   // =====================
@@ -161,67 +165,14 @@ export default function DataTable({ data, fileBase64 }: Props) {
   // 🔥 TOTALS
   // =====================
 
-function getTotal(key: string) {
-  const counts = getCounts(key);
+// 🔹 normalize helper (move outside so it's not recreated every time)
+const normalize = (str: string) =>
+  str.toLowerCase().replace(/\s+/g, "");
 
-  return counts
-    .filter(
-      (item) =>
-        item.display &&
-        item.display.toLowerCase() !== "unknown"
-    )
-    .reduce((sum, item) => sum + item.count, 0);
-}
-  
-  // =====================
-  // 🔥 COUNTS
-  // =====================
-function getCounts(key: string) {
-  const counts: Record<
-    string,
-    { display: string; count: number }
-  > = {};
+// 🔹 cache for memoization (important for Vercel performance)
+const countsCache = new Map<string, any>();
 
-  // 🔹 normalize helper (handles case + spaces)
-  const normalize = (str: string) =>
-    str.toLowerCase().replace(/\s+/g, "");
 
-  filteredRows.forEach((row) => {
-    const original = row.original;
-
-    // 🔹 match correct key
-    const matchedKey = Object.keys(original).find(
-      (k) => normalize(k) === normalize(key)
-    );
-
-    const rawValue = matchedKey ? original[matchedKey] : null;
-
-    const value =
-      rawValue && String(rawValue).trim() !== ""
-        ? String(rawValue).trim()
-        : "Unknown";
-
-    // 🔥 case-insensitive grouping key
-    const groupKey = value.toLowerCase();
-
-    if (counts[groupKey]) {
-      counts[groupKey].count++;
-    } else {
-      counts[groupKey] = {
-        display: formatDisplayText(value), // keep original casing
-        count: 1
-      };
-    }
-  });
-
-  return Object.values(counts)
-    .map(({ display, count }) => ({
-      value: display,
-      display,
-      count,
-    }))
-    .sort((a, b) => b.count - a.count);
-}
 
   const countFields = [
     "District",
@@ -232,6 +183,15 @@ function getCounts(key: string) {
     "Mode",
   ];
 
+const countsData = useMemo(() => {
+  return countFields.map((field) => ({
+    field,
+    counts: getCounts(field),
+    total: getTotal(field),
+  }));
+}, [filteredRows, countFields]);
+
+
   // =====================
   // 🔥 DOWNLOAD EXCEL
   // =====================
@@ -239,8 +199,7 @@ function getCounts(key: string) {
     const wb = XLSX.utils.book_new();
 
     countFields.forEach((field) => {
-      const data = getCounts(field).map(({ display, count }) => ({
-        Value: display,
+    const data = getCounts(field).map(({ display, count }: { display: string; count: number }) => ({
         Count: count,
       }));
 
@@ -273,14 +232,14 @@ async function downloadCountsWord() {
     );
 
     // 🔹 Get + sort
-    const sortedCounts = getCounts(field).sort((a, b) =>
+    const sortedCounts = getCounts(field).sort((a: { count: number; display?: string }, b: { count: number; display?: string }) =>
       (a.display || "").localeCompare(b.display || "", undefined, {
         sensitivity: "base",
       })
     );
 
     // 🔹 Calculate total
-    const total = sortedCounts.reduce((sum, item) => sum + item.count, 0);
+    const total = sortedCounts.reduce((sum: number, item: { count: number; display?: string }) => sum + item.count, 0);
 
     const rows: TableRow[] = [
       // 🔹 Header Row
@@ -332,7 +291,7 @@ async function downloadCountsWord() {
     ];
 
     // 🔹 Data Rows
-    sortedCounts.forEach(({ display, count }) => {
+    sortedCounts.forEach(({ display, count }: { count: number; display?: string }) => {
       rows.push(
         new TableRow({
           children: [
@@ -405,7 +364,7 @@ async function downloadCountsWord() {
       </div>
 
       {/* TABLE */}
-      <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
+      <div className="bg-gray-500 rounded-2xl shadow-lg overflow-hidden">
         <div className="overflow-y-auto max-h-125">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-100 sticky top-0">
@@ -534,24 +493,25 @@ async function downloadCountsWord() {
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-8">
-        {countFields.map((field) => (
-          <div key={field} className="bg-white rounded-xl shadow p-4">
-            <h3 className="font-semibold mb-2">{field}</h3>
+      {countsData.map(({ field, counts, total }) => (
+  <div key={field} className="bg-white rounded-xl shadow p-4">
+    <h3 className="font-semibold mb-2">{field}</h3>
 
-            <div className="max-h-40 overflow-auto text-sm">
-              {getCounts(field).map(({ value, count }) => (
-                <div key={value} className="flex justify-between border-b">
-                  <span>{value}</span>
-                  <span>{count}</span>
-                </div>
-              ))}
-              <div className="flex justify-between font-bold mt-2">
-                <span>Total:</span>
-                <span>{getTotal(field)}</span>
-              </div>
-            </div>
-          </div>
-        ))}
+    <div className="max-h-40 overflow-auto text-sm">
+      {counts.map(({ value, count }: { value: string; count: number }) => (
+        <div key={value} className="flex justify-between border-b">
+          <span>{value}</span>
+          <span>{count}</span>
+        </div>
+      ))}
+
+      <div className="flex justify-between font-bold mt-2">
+        <span>Total:</span>
+        <span>{total}</span>
+      </div>
+    </div>
+  </div>
+))}
       </div>
     </div>
   );
