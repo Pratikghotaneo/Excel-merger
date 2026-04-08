@@ -173,13 +173,8 @@ export default function DataTable({ data, fileBase64 }: Props) {
     // 🔠 TITLE CASE (ALL WORDS CAPITAL)
     const toTitleCase = (str: string) => {
       if (!str) return "Unknown";
-      return str
-        .toLowerCase()
-        .split(" ")
-        .map((word) =>
-          word ? word.charAt(0).toUpperCase() + word.slice(1) : ""
-        )
-        .join(" ");
+      return str.toUpperCase()
+      ;
     };
 
     // 🔥 SECTION TITLE
@@ -291,14 +286,62 @@ export default function DataTable({ data, fileBase64 }: Props) {
   saveAs(blob, "counts.docx");
 }
 
-  const handleDownload = () => {
-    if (!fileBase64) return;
+ const handleDownload = () => {
+  if (!fileBase64) return;
 
-    const link = document.createElement("a");
-    link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${fileBase64}`;
-    link.download = "merged.xlsx";
-    link.click();
-  };
+  // 1. Decode base64 → binary
+  const binary = atob(fileBase64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  // 2. Read workbook
+  const workbook = XLSX.read(bytes, { type: "array" });
+
+  // 3. Convert ALL data to uppercase
+  workbook.SheetNames.forEach((sheetName) => {
+    const sheet = workbook.Sheets[sheetName];
+
+    const jsonData = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+    const upperData = jsonData.map((row: any) => {
+      const newRow: any = {};
+
+      for (const key in row) {
+        const value = row[key];
+
+        newRow[key] =
+          typeof value === "string"
+            ? value.toUpperCase()
+            : value;
+      }
+
+      return newRow;
+    });
+
+    const newSheet = XLSX.utils.json_to_sheet(upperData);
+    workbook.Sheets[sheetName] = newSheet;
+  });
+
+  // 4. Export again
+  const newFile = XLSX.write(workbook, {
+    bookType: "xlsx",
+    type: "array",
+  });
+
+  // 5. Download
+  const blob = new Blob([newFile], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "merged_uppercase.xlsx";
+  link.click();
+};
 
  return (
   <div className="p-6 bg-gray-50 min-h-screen">
