@@ -24,6 +24,7 @@ import {
 } from "docx";
 import { saveAs } from "file-saver";
 import { useCountsApi } from "@/hooks/useCountApi";
+import { formatDisplayText } from "@/utils/helper";
 
 type Props = {
   data: any[];
@@ -92,7 +93,7 @@ export default function DataTable({ data, fileBase64 }: Props) {
         </div>
       ),
 
-      cell: (info) => info.getValue() || "-",
+      cell: (info) => formatDisplayText(info.getValue() as string) || "-",
     }));
   }, [cleanedData]);
 
@@ -363,8 +364,8 @@ export default function DataTable({ data, fileBase64 }: Props) {
                       className="px-4 py-2 border-b text-gray-700"
                     >
                       {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
+                       cell.column.columnDef.cell,
+                       cell.getContext()
                       )}
                     </td>
                   ))}
